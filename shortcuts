@@ -1,0 +1,118 @@
+#!/bin/sh
+set -eu
+BASE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+linux() { [ "$(uname -s)" = Linux ] || fail 'Keyboard remapping must run on Linux, at the physical keyboard. Bash history also works separately on macOS.'; }
+choose_binary() {
+    if [ -x "$BASE/bin/keyd-$(uname -m)" ]; then KEYD="$BASE/bin/keyd-$(uname -m)"
+    elif command -v keyd >/dev/null 2>&1; then KEYD=$(command -v keyd)
+    else fail 'keyd not found. Install your distribution package, or run: ./shortcuts prepare'; fi
+}
+case "${1:-help}" in
+history) exec bash "$BASE/history.sh" ;;
+undo) "$BASE/shortcuts" stop; exec bash "$BASE/history.sh" --undo ;;
+stop)
+    linux
+    if [ ! -d /run/linux-shortcuts-session ]; then echo 'No keyboard session to stop.'; exit 0; fi
+    if [ "$(id -u)" != 0 ]; then exec sudo sh "$BASE/shortcuts" root-stop; fi
+    exec sh "$BASE/shortcuts" root-stop
+    ;;
+root-stop)
+    linux
+    [ "$(id -u)" = 0 ] || fail 'Run ./shortcuts stop instead.'
+    LOCK=/run/linux-shortcuts-session
+    [ -d "$LOCK" ] || { echo 'No keyboard session to stop.'; exit 0; }
+    [ -f "$LOCK/pid" ] && [ -f "$LOCK/starttime" ] || fail 'Session has no valid process record. See stale-session cleanup in README.md.'
+    PID=$(cat "$LOCK/pid")
+    case "$PID" in ''|*[!0-9]*) fail 'Invalid session PID.' ;; esac
+    [ -r "/proc/$PID/stat" ] || fail 'Session process is gone. See stale-session cleanup in README.md.'
+    START=$(awk '{sub(/^.*\) /, ""); print $20}' "/proc/$PID/stat")
+    [ "$START" = "$(cat "$LOCK/starttime")" ] || fail 'PID has been reused. No process stopped; see stale-session cleanup in README.md.'
+    kill -TERM "$PID"
+    # Wait briefly for its cleanup to finish before reporting success.
+    attempt=0
+    while [ -d "$LOCK" ] && [ "$attempt" -lt 50 ]; do sleep 0.1; attempt=$((attempt + 1)); done
+    [ ! -d "$LOCK" ] || fail 'Stop requested but cleanup is incomplete. Check the original terminal.'
+    echo 'Keyboard session stopped and its configuration removed.'
+    ;;
+prepare)
+    linux
+    command -v make >/dev/null || fail 'Need make and a C compiler (Debian/Ubuntu: build-essential; Alpine: build-base; Fedora: gcc make kernel-headers).'
+    command -v "${CC:-cc}" >/dev/null || fail 'Need a C compiler. See README.md.'
+    cd "$BASE/vendor"
+    printf '%s  %s\n' '697089681915b89d9e98caf93d870dbd4abce768af8a647d54650a6a90744e26' keyd-v2.6.0.tar.gz | sha256sum -c -
+    BUILD=$(mktemp -d)
+    trap 'rm -rf -- "$BUILD"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM HUP
+    tar -xzf keyd-v2.6.0.tar.gz -C "$BUILD"
+    LDFLAGS=
+    case "${2:-}" in '') ;; --static) LDFLAGS=-static ;; *) fail 'Usage: ./shortcuts prepare [--static]' ;; esac
+    make -C "$BUILD/keyd-2.6.0" LDFLAGS="$LDFLAGS"
+    "$BUILD/keyd-2.6.0/bin/keyd" check "$BASE/caps.conf"
+    mkdir -p "$BASE/bin"
+    cp "$BUILD/keyd-2.6.0/bin/keyd" "$BASE/bin/keyd-$(uname -m)"
+    printf '%s\n' 'Ready. Run ./shortcuts run. Keep bin/ on your USB for a matching Linux CPU.'
+    ;;
+run)
+    linux
+    choose_binary
+    "$KEYD" check "$BASE/caps.conf" || fail 'Configuration check failed. Use ./shortcuts prepare for the bundled keyd 2.6.0.'
+    if [ "$(id -u)" != 0 ]; then exec sudo sh "$BASE/shortcuts" root-run "$KEYD"; fi
+    exec sh "$BASE/shortcuts" root-run "$KEYD"
+    ;;
+root-run)
+    linux
+    [ "$(id -u)" = 0 ] || fail 'Run ./shortcuts run instead.'
+    KEYD=${2:?missing binary}
+    command -v pgrep >/dev/null || fail 'Need pgrep (procps/procps-ng) to check for an existing remapper.'
+    if pgrep -x keyd >/dev/null; then fail 'keyd is already running. This temporary runner leaves it alone; merge caps.conf into its configuration instead.'; fi
+    LOCK=/run/linux-shortcuts-session
+    mkdir -m 700 "$LOCK" || fail 'A session or stale /run/linux-shortcuts-session already exists. See README.md.'
+    CHILD=
+    CONFIG=
+    CREATED_DIR=no
+    cleanup() {
+        if [ -n "$CHILD" ]; then kill "$CHILD" 2>/dev/null || :; wait "$CHILD" 2>/dev/null || :; fi
+        if [ -n "$CONFIG" ]; then rm -f -- "$CONFIG"; fi
+        if [ "$CREATED_DIR" = yes ]; then rmdir /etc/keyd 2>/dev/null || :; fi
+        rm -rf -- "$LOCK"
+    }
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM HUP
+    printf '%s\n' "$$" > "$LOCK/pid"
+    awk '{sub(/^.*\) /, ""); print $20}' "/proc/$$/stat" > "$LOCK/starttime"
+    for f in /etc/keyd/*.conf; do
+        if [ -e "$f" ] || [ -L "$f" ]; then fail "Existing keyd configuration found: $f. Merge caps.conf manually; nothing overwritten."; fi
+    done
+    if [ ! -d /etc/keyd ]; then mkdir /etc/keyd; CREATED_DIR=yes; fi
+    if [ ! -e /dev/uinput ]; then modprobe uinput || fail 'Could not load uinput. This needs host access, not an ordinary container or SSH-only host.'; fi
+    [ -d /dev/input ] && [ -e /dev/uinput ] || fail 'Linux keyboard input devices are unavailable.'
+    # Run a root-owned copy so a USB can be removed after startup.
+    cp "$KEYD" "$LOCK/keyd"
+    chmod 700 "$LOCK/keyd"
+    candidate=/etc/keyd/linux-shortcuts-session.conf
+    # noclobber also rejects an unexpected existing file/symlink.
+    (set -C; cat "$BASE/caps.conf" > "$candidate") || fail 'Could not create temporary configuration.'
+    CONFIG=$candidate
+    printf '%s\n' 'Caps navigation active for this session. Stop with Ctrl+C in this terminal.' 'Emergency stop: hold Backspace + Escape + Enter together.'
+    "$LOCK/keyd" &
+    CHILD=$!
+    wait "$CHILD"
+    ;;
+help|--help|-h)
+    cat <<'HELP'
+./shortcuts history           Set up Bash prefix history search (Up/Down).
+./shortcuts undo              Stop keyboard remapping and restore Bash configuration.
+. ./revert.sh                 Also restore bindings in this Bash immediately.
+./shortcuts stop              Stop just the temporary keyboard remapping.
+. ./history.sh --undo         Also restore bindings in this Bash immediately.
+. ./history.sh                Also activate it in this Bash immediately.
+./shortcuts prepare           Build keyd locally, using bundled source; no network.
+./shortcuts prepare --static  Build a portable binary (needs static libc development files).
+./shortcuts run               Temporary Caps navigation; sudo required. Ctrl+C restores.
+HELP
+    ;;
+*) fail 'Unknown command. Run ./shortcuts help.' ;;
+esac

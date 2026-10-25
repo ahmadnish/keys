@@ -1,0 +1,20 @@
+#!/bin/sh
+# GitHub Pages entry point: https://ahmadnish.github.io/keys/get
+set -eu
+[ "$(uname -s)" = Linux ] || { echo 'Download this kit on Linux. On macOS, use Karabiner.' >&2; exit 1; }
+DEST=${KEYS_DEST:-"$HOME/keys"}
+[ ! -e "$DEST" ] || { echo "$DEST already exists; use it or set KEYS_DEST to a new location." >&2; exit 1; }
+TMP=$(mktemp -d)
+trap 'rm -rf -- "$TMP"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+curl -fL --retry 2 https://ahmadnish.github.io/keys/keys.tar.gz -o "$TMP/keys.tar.gz"
+curl -fL --retry 2 https://ahmadnish.github.io/keys/keys.tar.gz.sha256 -o "$TMP/keys.tar.gz.sha256"
+(cd "$TMP" && sha256sum -c keys.tar.gz.sha256)
+mkdir "$DEST"
+tar -xzf "$TMP/keys.tar.gz" -C "$DEST" --strip-components=1
+printf '\nSaved to %s\n' "$DEST"
+printf 'Activate Bash history now: source "%s/history.sh"\n' "$DEST"
+printf 'Build keyboard remapper:   "%s/shortcuts" prepare\n' "$DEST"
+printf 'Start keyboard shortcuts:  "%s/shortcuts" run\n' "$DEST"
+bash "$DEST/history.sh"

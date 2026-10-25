@@ -1,0 +1,62 @@
+name: Publish keys
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  binaries:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools linux-libc-dev
+      - run: ./tests/run.sh
+      - name: Build a static binary with Linux kernel headers
+        run: |
+          export CFLAGS="-idirafter /usr/include -idirafter /usr/include/$(gcc -dumpmachine)"
+          CC=musl-gcc ./shortcuts prepare --static
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.runner }}
+          path: bin/keyd-*
+  package:
+    needs: binaries
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: bin
+      - run: |
+          chmod +x bin/keyd-*
+          mkdir -p /tmp/keys
+          cp -R shortcuts history.sh revert.sh caps.conf tmux.conf zsh-selection.zsh README.md LICENSE vendor bin get /tmp/keys/
+          mkdir -p site
+          tar -czf site/keys.tar.gz -C /tmp keys
+          (cd site && sha256sum keys.tar.gz > keys.tar.gz.sha256)
+          cp get index.html site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+  deploy:
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
