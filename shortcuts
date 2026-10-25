@@ -13,12 +13,24 @@ history) exec bash "$BASE/history.sh" ;;
 undo) "$BASE/shortcuts" stop; exec bash "$BASE/history.sh" --undo ;;
 stop)
     linux
+    case "${2:-}" in ''|--no-sudo) ;; *) fail 'Usage: ./shortcuts stop [--no-sudo]' ;; esac
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 "$BASE/x11.py" stop; then exit 0
+        else status=$?; [ "$status" = 3 ] || exit "$status"; fi
+    fi
+    if [ "${2:-}" = --no-sudo ]; then echo 'No X11 keyboard session to stop.'; exit 0; fi
     if [ ! -d /run/linux-shortcuts-session ]; then echo 'No keyboard session to stop.'; exit 0; fi
     if [ "$(id -u)" != 0 ]; then exec sudo sh "$BASE/shortcuts" root-stop; fi
     exec sh "$BASE/shortcuts" root-stop
     ;;
 root-stop)
     linux
+    case "${2:-}" in ''|--no-sudo) ;; *) fail 'Usage: ./shortcuts stop [--no-sudo]' ;; esac
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 "$BASE/x11.py" stop; then exit 0
+        else status=$?; [ "$status" = 3 ] || exit "$status"; fi
+    fi
+    if [ "${2:-}" = --no-sudo ]; then echo 'No X11 keyboard session to stop.'; exit 0; fi
     [ "$(id -u)" = 0 ] || fail 'Run ./shortcuts stop instead.'
     LOCK=/run/linux-shortcuts-session
     [ -d "$LOCK" ] || { echo 'No keyboard session to stop.'; exit 0; }
@@ -56,6 +68,15 @@ prepare)
     ;;
 run)
     linux
+    mode=${2:-auto}
+    case "$mode" in auto|--no-sudo|--system) ;; *) fail 'Usage: ./shortcuts run [--no-sudo|--system]' ;; esac
+    if [ "$mode" = --no-sudo ] || { [ "$mode" = auto ] && [ "$(id -u)" != 0 ] && [ -n "${DISPLAY:-}" ] && [ "${XDG_SESSION_TYPE:-}" != wayland ] && [ -z "${WAYLAND_DISPLAY:-}" ]; }; then
+        command -v python3 >/dev/null 2>&1 || fail 'The no-sudo fallback needs python3 and xkbcomp. Nothing installed; use --system for the sudo-based backend.'
+        exec python3 "$BASE/x11.py" run
+    fi
+    if [ "$(id -u)" != 0 ]; then
+        command -v sudo >/dev/null 2>&1 || fail 'sudo is unavailable. On an X11 desktop, try ./shortcuts run --no-sudo. Wayland needs administrator access for the system backend.'
+    fi
     choose_binary
     "$KEYD" check "$BASE/caps.conf" || fail 'Configuration check failed. Use ./shortcuts prepare for the bundled keyd 2.6.0.'
     if [ "$(id -u)" != 0 ]; then exec sudo sh "$BASE/shortcuts" root-run "$KEYD"; fi
@@ -111,7 +132,10 @@ help|--help|-h)
 . ./history.sh                Also activate it in this Bash immediately.
 ./shortcuts prepare           Build keyd locally, using bundled source; no network.
 ./shortcuts prepare --static  Build a portable binary (needs static libc development files).
-./shortcuts run               Temporary Caps navigation; sudo required. Ctrl+C restores.
+./shortcuts run               Prefer no-sudo X11; otherwise use the sudo-based system backend.
+./shortcuts run --no-sudo     Only use your X11 session; never request sudo.
+./shortcuts run --system      Explicitly use keyd (sudo); supports Wayland/X11/TTY.
+./shortcuts stop --no-sudo    Restore only the X11 session, without sudo.
 HELP
     ;;
 *) fail 'Unknown command. Run ./shortcuts help.' ;;

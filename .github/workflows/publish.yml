@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
-      - run: sudo apt-get update && sudo apt-get install -y musl-tools linux-libc-dev
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools linux-libc-dev xvfb x11-xkb-utils libxtst6
       - run: ./tests/run.sh
       - name: Build a static binary with Linux kernel headers
         run: |
@@ -39,7 +39,7 @@ jobs:
       - run: |
           chmod +x bin/keyd-*
           mkdir -p /tmp/keys
-          cp -R shortcuts history.sh revert.sh caps.conf tmux.conf zsh-selection.zsh README.md LICENSE vendor bin get /tmp/keys/
+          cp -R shortcuts x11.py history.sh revert.sh caps.conf tmux.conf zsh-selection.zsh README.md LICENSE vendor bin get /tmp/keys/
           mkdir -p site
           tar -czf site/keys.tar.gz -C /tmp keys
           (cd site && sha256sum keys.tar.gz > keys.tar.gz.sha256)

@@ -15,9 +15,18 @@ source history.sh
 
 The downloader saves a kit and configures
 history for future Bash sessions. `source history.sh` activates it in your current
-Bash. Start keyboard remapping separately; it asks for sudo and runs until Ctrl+C.
+Bash. Start keyboard remapping separately; it prefers the no-sudo X11 backend
+and runs until Ctrl+C. On Wayland or a console, the system backend needs sudo.
 Leave that terminal open and use any other terminals/apps normally.
-The downloader refuses to overwrite an existing `~/keys`; run that copy directly.
+The downloader refuses to overwrite an existing `~/keys`. To keep an old version
+and download this update separately:
+
+```sh
+curl -fsSL https://ahmadnish.github.io/keys/get | KEYS_DEST="$HOME/keys-new" sh
+```
+
+Use the commands under `~/keys-new` in that case. Stop an active old keyboard
+session before starting the new version.
 
 ## Your bindings
 
@@ -86,39 +95,92 @@ change the bindings inside its parent shell. If the file changed after setup,
 undo refuses to overwrite those edits and prints the original backup location.
 This prevents accidental loss of later customizations.
 
-## Keyboard scope and stopping
+## Keyboard scope, no-sudo fallback, and stopping
 
-`keyd` uses Linux evdev/uinput, so navigation works with X11, Wayland and virtual
-consoles. While active, it affects the machine's keyboards for all users; you
-approved this temporary scope. It needs sudo/root on the host with the physical
-keyboard. No reboot or login restart is needed. It does not install a service,
-change existing keyd configs, or enable anything at boot.
+`./shortcuts run` prefers the X11 fallback for a normal user on an X11 desktop.
+It uses your current X server's XKB map and does not ask for sudo. Its changes
+apply to that display, including new terminals and apps opened there, until you
+stop it. Separate X11 displays, Wayland apps and text consoles are unaffected.
+It needs **Python 3.7+, xkbcomp and libX11** already available. It installs no
+packages and changes no system files or login startup files.
 
-Stop with **Ctrl+C in its original terminal**, or `./shortcuts stop` from another terminal. It stops its child daemon, removes
-its own temporary `/etc/keyd/linux-shortcuts-session.conf`, and removes its private
-`/run/linux-shortcuts-session` directory. Emergency keyd stop: hold **Backspace +
-Escape + Enter** together. The runner then cleans up. Existing keyd daemons or
+To guarantee that sudo is never requested:
+
+```sh
+~/keys/shortcuts run --no-sudo
+```
+
+The same I/J/K/L/H/apostrophe/N physical positions work with Shift selection and
+Ctrl navigation. Existing key symbols, Shift behavior, AltGr and layout groups
+are preserved. Caps Lock is a momentary modifier; no two-Shift toggle is added.
+The fallback reserves Mod3 and temporarily borrows unused XKB type slots. It
+refuses layouts where those are unavailable, active LevelFive layouts, and
+unsupported custom actions, instead of overwriting them. The original full map
+is saved per display under `${XDG_STATE_HOME:-~/.local/state}/ahmadnish-keys-x11`.
+
+Stop it using **Ctrl+C in its original terminal**, `./shortcuts stop` from
+another terminal on the same display, or `source ~/keys/revert.sh`. The last
+command also restores Bash history bindings. `./shortcuts stop --no-sudo` stops
+only the X11 backend and never asks for sudo. Stopping restores the saved map
+and removes the backup. If the map changed after setup (for example through a
+desktop settings panel), restoration refuses to overwrite those later changes
+and prints the backup location. After a forced SIGKILL, `./shortcuts stop` can
+recover the saved map if the temporary map still matches. If necessary, the
+saved original can be restored manually on that same display with `xkbcomp`;
+the reported backup directory contains `bridge.xkb` and `original.xkb`:
+
+```sh
+xkbcomp /path/to/backup/bridge.xkb "$DISPLAY"
+xkbcomp /path/to/backup/original.xkb "$DISPLAY"
+```
+
+The two-step restoration resets key references before returning the borrowed
+types to their original definitions. XKB may normalize decorative component
+labels and explicit default entries when reloading; original keyboard behavior
+and type definitions are restored. Do not apply a saved map to a different
+session or after unrelated layout changes without checking it first.
+
+**Wayland/Xwayland:** this kit has no general no-sudo keyboard backend there.
+`--no-sudo` explains the limitation and leaves keyboard settings alone. Bash
+history remains available without sudo. X11 mode also refuses SSH-forwarded
+displays; start it locally on the Linux desktop with the physical keyboard.
+
+To use the original system-wide backend explicitly:
+
+```sh
+~/keys/shortcuts run --system
+```
+
+This uses `keyd` through evdev/uinput and needs sudo/root on the host with the
+physical keyboard. It works with X11, Wayland and virtual consoles and affects
+the machine's keyboards for all users while running. No reboot is needed. It
+installs no service, changes no existing keyd configs, and enables nothing at
+boot. On Wayland or a console, plain `run` still selects this backend.
+
+For keyd, Ctrl+C or `./shortcuts stop` stops the daemon and removes its temporary
+`/etc/keyd/linux-shortcuts-session.conf` and `/run/linux-shortcuts-session`.
+Emergency keyd stop: hold **Backspace + Escape + Enter**. Existing keyd daemons or
 configuration cause a refusal; merge `caps.conf` manually in that situation.
 Do not run another keyd service concurrently with the temporary session.
 
-SIGKILL and power failure cannot run cleanup handlers. After confirming no keyd
-process remains (`pgrep -x keyd`), remove **only** the kit's stale paths if present:
+SIGKILL and power failure cannot run cleanup handlers. For a stale **keyd**
+session, confirm no keyd process remains (`pgrep -x keyd`), then remove only the
+kit's paths if present:
 
 ```sh
 sudo rm -f /etc/keyd/linux-shortcuts-session.conf
 sudo rm -rf /run/linux-shortcuts-session
 ```
 
-Reboot clears `/run` but can leave the `/etc` file after a power failure.
-A uinput module loaded on demand remains loaded; unloading a shared kernel
-module is deliberately left to the administrator. Packages you explicitly
+Reboot clears `/run` but can leave that `/etc` file after a power failure.
+A uinput module loaded on demand remains loaded. Packages you explicitly
 install are not automatically uninstalled. After undo and stopping navigation,
-you can delete the downloaded kit directory to remove the remaining files.
+you can delete the downloaded kit directory to remove the remaining kit files.
 
-Over SSH from your Mac, keep Karabiner on the Mac: remapping on the remote Linux
-host cannot intercept your Mac's physical Caps Lock. Bash history and tmux work
-on the SSH host. A machine without Bash needs Bash installed for the history
-helper; navigation itself uses only POSIX sh and keyd.
+Over SSH from your Mac, keep Karabiner on the Mac: the Linux host cannot
+intercept the Mac's physical Caps Lock. Bash history and tmux work on the SSH
+host. History setup needs Bash; the X11 backend needs Python/xkbcomp, while the
+system backend uses POSIX sh and keyd.
 
 ## Offline / USB
 
@@ -138,13 +200,16 @@ source history.sh
 ./shortcuts run
 ```
 
-The runner requires normal Linux host utilities (`sudo`, `pgrep`, and `modprobe`
-if uinput is not loaded). A USB mounted `noexec` must be copied into your home
-first. Root access and evdev/uinput availability are still required. Unusual CPU
+The **system backend** requires normal Linux host utilities (`sudo`, `pgrep`,
+and `modprobe` if uinput is not loaded), root access and evdev/uinput. The X11
+fallback works offline without those privileges when its Python/xkbcomp/libX11
+dependencies are already present. A USB mounted `noexec` should be copied into
+your home first. Unusual CPU
 architectures, containers, restrictive hosts, and non-Linux kernels are not
 universally supported.
 
-Without a bundled binary, use an installed **keyd 2.6+**, or build on Linux:
+Without a bundled binary, X11 fallback still works with its existing tools.
+For the system backend, use an installed **keyd 2.6+**, or build on Linux:
 
 ```sh
 ./shortcuts prepare
@@ -223,6 +288,16 @@ not compromise of the hosting account.
 
 ## Validation and primary references
 
+The X11 backend is tested on an isolated Xvfb server, with XTest-generated Caps
+and left/right Shift events in either order. Tests cover ordinary symbols and
+AltGr across US and combined US-international/German groups, Shift/Ctrl/Alt/Super
+navigation, preservation of the selected layout group, restoration of the map,
+SIGINT cleanup, SIGKILL recovery, and the combined Bash+keyboard revert helper.
+A fake sudo command verifies that the fallback never attempts elevation.
+Wayland, SSH, missing-display and occupied-modifier cases are also checked.
+These tests run on both native Linux architectures in GitHub Actions.
+
+
 36 navigation/Shift event cases passed (including both Shift keys with no Caps toggle) against the unmodified keyd 2.6.0 engine
 on macOS, with an empty Linux input header shim for the platform-independent
 engine test only. This did not exercise Linux hardware devices. Bash tests cover
@@ -231,6 +306,7 @@ protection of later edits, and immediate activation/undo. GitHub Actions repeats
 the tests natively on Linux before publishing. Native Linux builds and tests run in GitHub Actions. Live Linux hardware
 keyboard/tmux behavior still needs testing on the target desktop.
 
+- [XKB protocol and key types](https://www.x.org/releases/current/doc/kbproto/xkbproto.html)
 - [keyd source and documentation](https://github.com/rvaiya/keyd)
 - [GNU Readline configuration](https://www.gnu.org/software/bash/manual/html_node/Readline-Init-File-Syntax.html)
 - [tmux manual](https://github.com/tmux/tmux/blob/master/tmux.1)
