@@ -4,7 +4,7 @@ Portable Caps Lock navigation and Bash history prefix search for Ahmad.
 
 ## Quick use on Linux
 
-Once this repo is published with GitHub Pages, remember **ahmadnish / keys / get**:
+Remember **ahmadnish / keys / get**:
 
 ```sh
 curl -fsSL https://ahmadnish.github.io/keys/get | sh
@@ -13,7 +13,7 @@ source history.sh
 ./shortcuts run
 ```
 
-**The URL is planned, not yet published.** The downloader saves a kit and configures
+The downloader saves a kit and configures
 history for future Bash sessions. `source history.sh` activates it in your current
 Bash. Start keyboard remapping separately; it asks for sudo and runs until Ctrl+C.
 Leave that terminal open and use any other terminals/apps normally.
@@ -125,10 +125,10 @@ helper; navigation itself uses only POSIX sh and keyd.
 Copy this entire directory to a USB stick. The pinned keyd **2.6.0 source is
 already bundled** and checksum-verified; it requires no download to build.
 
-Prefer the published Pages `keys.tar.gz` once the workflow has succeeded: it
-will contain static Linux binaries for x86_64 and aarch64. Copy that extracted
-kit to USB before going offline. The local kit created on this Mac has **source
-only**, because Linux binaries cannot be validated here.
+The published Pages `keys.tar.gz` contains static Linux binaries for x86_64
+and aarch64. Copy that extracted
+kit to USB before going offline. A source-only Git checkout does not include binaries; use the published
+archive or build them on Linux.
 
 With a matching binary in `bin/`, no compiler or keyd package is needed:
 
@@ -228,8 +228,8 @@ on macOS, with an empty Linux input header shim for the platform-independent
 engine test only. This did not exercise Linux hardware devices. Bash tests cover
 idempotency, original file absence, exact byte restoration, symlink preservation,
 protection of later edits, and immediate activation/undo. GitHub Actions repeats
-the tests natively on Linux before publishing. The workflow and live Linux
-keyboard/tmux behavior have not been run from this Mac.
+the tests natively on Linux before publishing. Native Linux builds and tests run in GitHub Actions. Live Linux hardware
+keyboard/tmux behavior still needs testing on the target desktop.
 
 - [keyd source and documentation](https://github.com/rvaiya/keyd)
 - [GNU Readline configuration](https://www.gnu.org/software/bash/manual/html_node/Readline-Init-File-Syntax.html)
