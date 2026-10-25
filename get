@@ -15,6 +15,11 @@ mkdir "$DEST"
 tar -xzf "$TMP/keys.tar.gz" -C "$DEST" --strip-components=1
 printf '\nSaved to %s\n' "$DEST"
 printf 'Activate Bash history now: source "%s/history.sh"\n' "$DEST"
-printf 'Build keyboard remapper:   "%s/shortcuts" prepare\n' "$DEST"
+if [ -x "$DEST/bin/keyd-$(uname -m)" ] || command -v keyd >/dev/null 2>&1; then
+    printf '%s\n' 'Keyboard remapper included or already installed; no compilation needed.'
+else
+    printf 'Build keyboard remapper:   "%s/shortcuts" prepare\n' "$DEST"
+fi
 printf 'Start keyboard shortcuts:  "%s/shortcuts" run\n' "$DEST"
+printf 'Revert both features:      source "%s/revert.sh"\n' "$DEST"
 bash "$DEST/history.sh"
